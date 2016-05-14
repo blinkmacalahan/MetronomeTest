@@ -1,0 +1,309 @@
+/**
+ * Lines 25 and 31-38 were originally found here:
+ * http://stackoverflow.com/questions/2413426/playing-an-arbitrary-tone-with-android
+ * which came from here:
+ * http://marblemice.blogspot.com/2010/04/generate-and-play-tone-in-android.html
+ */
+package pntanasis.android.metronome;
+
+import android.content.Context;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
+import android.os.Environment;
+import android.os.Handler;
+import android.util.Log;
+
+import com.google.gson.Gson;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+
+public class AudioGenerator {
+	
+    private int sampleRate;
+    private AudioTrack audioTrack;
+    
+    public AudioGenerator(int sampleRate) {
+    	this.sampleRate = sampleRate;
+    }
+
+    public void setMarker(int marker, Handler handler) {
+        audioTrack.setNotificationMarkerPosition(marker);
+
+        audioTrack.setPlaybackPositionUpdateListener(new AudioTrack.OnPlaybackPositionUpdateListener() {
+            @Override
+            public void onMarkerReached(AudioTrack track) {
+                Log.d("Metronome", "Marker Reached: " + System.currentTimeMillis());
+            }
+
+            @Override
+            public void onPeriodicNotification(AudioTrack track) {
+                Log.d("Metronome", "onPeriodNotification: " + System.currentTimeMillis());
+            }
+        }, handler);
+    }
+    public double[] getSineWave(int samples,int sampleRate,double frequencyOfTone) {
+    	double[] sample = new double[samples];
+        for (int i = 0; i < samples; i++) {
+            sample[i] = Math.sin(2 * Math.PI * i / (sampleRate/frequencyOfTone));
+        }
+		return sample;
+    }
+    
+    public byte[] get16BitPcm(double[] samples) {
+    	byte[] generatedSound = new byte[2 * samples.length];
+    	int index = 0;
+        for (double sample : samples) {
+            // scale to maximum amplitude
+            short maxSample = (short) ((sample * Short.MAX_VALUE));
+            // in 16 bit wav PCM, first byte is the low order byte
+            generatedSound[index++] = (byte) (maxSample & 0x00ff);
+            generatedSound[index++] = (byte) ((maxSample & 0xff00) >>> 8);
+
+        }
+    	return generatedSound;
+    }
+    
+    public void createPlayer(){
+    	//FIXME sometimes audioTrack isn't initialized
+        audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
+                sampleRate, AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT, sampleRate,
+                AudioTrack.MODE_STREAM);
+    	audioTrack.play();
+    }
+    
+    public void writeSound(double[] samples) {
+    	byte[] generatedSnd = get16BitPcm(samples);
+    	audioTrack.write(generatedSnd, 0, generatedSnd.length);
+    }
+
+    public void writeSound(byte[] sound) {
+        audioTrack.write(sound, 0, sound.length);
+    }
+
+    public void writeSound(byte[] sound, final int length) {
+        audioTrack.write(sound, 0, length);
+    }
+
+    public void writeSound(short[] sound) {
+        audioTrack.write(sound, 0, sound.length);
+    }
+
+    public void writeSound(short[] sound, final int length) {
+        audioTrack.write(sound, 0, length);
+    }
+    
+    public void destroyAudioTrack() {
+    	audioTrack.stop();
+    	audioTrack.release();
+    }
+
+    /**
+     * This makes the assumption that the wav file IS MONO and a .wav's header info is 44 bytes (which isn't 100% true), might need
+     * to add logic to search for Subchunk2ID (0x64617461 big-endian form) plus 4 bytes to reach beginning
+     * of data. See http://soundfile.sapp.org/doc/WaveFormat/ for detail about .wav header format.
+     * @param filename
+     * @return
+     */
+    public static SampleDataShort loadSampleFromWav(final String filename) {
+        File file = new File(Environment.getExternalStorageDirectory(), filename);
+        if (!file.exists()) {
+            throw new IllegalArgumentException("File does not exist");
+        }
+        long fileLength = file.length();
+        short[] music = new short[((int) fileLength - 44) / 2];//size & length of the file
+        InputStream is = null;
+        try {
+            is = new FileInputStream(file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        BufferedInputStream bis = new BufferedInputStream(is);
+        //BufferedInputStream bis = new BufferedInputStream(is, 8000);
+        DataInputStream dis = new DataInputStream(bis);      //  Create a DataInputStream to read the audio data from the saved file
+        int z = 0;
+        int i = 0;                                                          //  Read the file into the "music" array
+        try {
+            while (dis.available() > 0) {
+                if (i < 44) {
+                    i++;
+                    dis.readByte();
+                    continue;
+                }
+                byte byte1 = dis.readByte();
+                byte byte2 = dis.readByte();
+                int low = (byte1 & 0xff);
+                int high = byte2 & 0xff;
+                short data = (short) (high << 8 | low);
+                music[z] = data;                                    //  This assignment does not reverse the order
+                z++;
+            }
+
+            dis.close();
+        } catch (IOException exception) {
+
+        }
+
+        String json = new Gson().toJson(music);
+        return new SampleDataShort(music);
+    }
+
+    /**
+     * Loads an audio sample from a file. This method is a shorthand for dealing with wav files whose
+     * "actual sound data," and not header info, has been saved to a text file.
+     *
+     * I originally created these text files by using the {@link #loadSampleFromWav(String)} method
+     * and modifying it to convert the byte[] into a string using Gson. To extract the data, set a break
+     * point and copy the values into a txt file.
+     *
+     * TODO In the future, the data can be obtained by converting each hex byte into binary. In binary,
+     * this represents an integer in two's complement (apparently, this is how every computer represents
+     * integers (http://www.cs.cornell.edu/~tomf/notes/cps104/twoscomp.html)). To get the final output,
+     * A) If the binary number's bit 8 is 0 it is a positive number: convert the binary to decimal
+     * B) If the binary number's bit 8 is 1 it is a negative number: Convert from two's complement and make the decimal negative.
+     * @param context
+     * @param filename
+     * @return
+     */
+    public static SampleData loadSampleFromTxt(Context context, String filename) {
+        InputStream sampleDataFromFile;
+        BufferedReader in;
+        ArrayList<Byte> music = new ArrayList<>();
+        try {
+            sampleDataFromFile = context.getAssets().open(filename);
+            in = new BufferedReader(new InputStreamReader(sampleDataFromFile, "UTF-8"));
+            String str;
+
+            while ((str=in.readLine()) != null) {
+                Byte bte = Byte.parseByte(str);
+                music.add(bte);
+            }
+
+            in.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+        byte[] _music = new byte[music.size()];
+        for (int i = 0; i < music.size(); i++) {
+            _music[i] = music.get(i);
+        }
+        return new SampleData(_music);
+    }
+
+    public static SampleDataShort loadSampleFromTxtShort(Context context, String filename) {
+        InputStream sampleDataFromFile;
+        BufferedReader in;
+        ArrayList<Short> music = new ArrayList<>();
+        try {
+            sampleDataFromFile = context.getAssets().open(filename);
+            in = new BufferedReader(new InputStreamReader(sampleDataFromFile, "UTF-8"));
+            String str;
+
+            while ((str=in.readLine()) != null) {
+                Short bte = Short.parseShort(str);
+                music.add(bte);
+            }
+
+            in.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+        short[] _music = new short[music.size()];
+        for (int i = 0; i < music.size(); i++) {
+            _music[i] = music.get(i);
+        }
+        return new SampleDataShort(_music);
+    }
+
+    public static class SampleData implements Sample {
+        byte[] sample;
+
+        /**
+         * The # of samples is needed in order to properly calculate the # of samples of silence needed in-between each metronome beat.
+         */
+        int sampleCount;
+
+        public SampleData(byte[] samp) {
+            sample = samp;
+
+            //http://stackoverflow.com/a/5838180
+            //Subchunk2Size (sample byte size) = NumberOfSamples * NumberOfChannels * (BitsPerSample / 8)
+
+            //The samples being used (accentedDownbeatSample_extractedWavData.txt and downbeatSample_extractedWavData.txt) are 1 channel and 16 bits per sample.
+            //That simplifies the formula to:
+            //Subchunk2Size = NumberOfSamples * 1 * (16/8)  --> Subchunk2Size = NumberOfSamples * 2;
+
+            //Now, solve for NumberOfSamples.
+            //NumberOfSamples = Subchunk2Size / 2
+            sampleCount = sample.length / 2;
+        }
+
+        @Override
+        public int getSampleCount() {
+            return sampleCount;
+        }
+
+        @Override
+        public Object getSample() {
+            return sample;
+        }
+    }
+
+    public static class SampleDataShort implements Sample {
+        short[] sample;
+
+        /**
+         * The # of samples is needed in order to properly calculate the # of samples of silence needed in-between each metronome beat.
+         */
+        int sampleCount;
+
+        public SampleDataShort(short[] samp) {
+            sample = samp;
+
+            //http://stackoverflow.com/a/5838180
+            //Subchunk2Size (aka sample byte size) = NumberOfSamples * NumberOfChannels * (BitsPerSample / 8)
+
+            //The samples being used (clap.txt and snare.txt) are 1 channel and 16 bits per sample.
+            //That simplifies the formula to:
+            //Subchunk2Size = NumberOfSamples * 1 * (16/8)  --> Subchunk2Size = NumberOfSamples * 2;
+
+            //Now, solve for NumberOfSamples.
+            //NumberOfSamples = Subchunk2Size / 2
+
+            //NOTE: Since this uses short (2 bytes) the formula would really be:
+            //sampleCount = (sample.length * 2) / 2; however, this simplifies down to what we have below.
+            //The reason why we multiply sample.length by 2 is because we need to find the byte size of the samples.
+            //Since our samples are represented as shorts (2 bytes) we multiply sample length by 2 to get bytes.
+            sampleCount = sample.length;
+        }
+
+        @Override
+        public int getSampleCount() {
+            return sampleCount;
+        }
+
+        @Override
+        public Object getSample() {
+            return sample;
+        }
+    }
+
+    public interface Sample {
+        int getSampleCount();
+        Object getSample();
+    }
+}

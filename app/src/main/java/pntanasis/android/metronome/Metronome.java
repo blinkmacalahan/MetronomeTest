@@ -108,9 +108,9 @@ public class Metronome implements AudioTrack.OnPlaybackPositionUpdateListener {
         final int headPosition = track.getPlaybackHeadPosition();
         final int lastPlaybackDelta = headPosition - mLastPlaybackPosition;
         final int variance = mBeatDivisionSampleCount - lastPlaybackDelta;
-        final int nextPosition = mLastPlaybackPosition == 0 ? mBeatDivisionSampleCount : mBeatDivisionSampleCount + variance;
-        Log.d(TAG, "onMarkerReached: " + headPosition + ", delta = " + lastPlaybackDelta + ", variance = " + variance + ", np = " + nextPosition);
-        track.setNotificationMarkerPosition(headPosition + nextPosition);
+        final int nextMarkerPosition = mLastPlaybackPosition == 0 ? mBeatDivisionSampleCount : mBeatDivisionSampleCount + variance;
+        Log.d(TAG, "onMarkerReached | headPosition = " + headPosition + ", lastPlaybackDelta = " + lastPlaybackDelta + ", variance = " + variance + ", nextMarkerPosition = " + nextMarkerPosition);
+        track.setNotificationMarkerPosition(headPosition + nextMarkerPosition);
 
         mLastPlaybackPosition = headPosition;
         mHandler.sendEmptyMessage(MainActivity.Messages.METRONOME_CLICK);

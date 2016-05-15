@@ -1,12 +1,15 @@
 package pntanasis.android.metronome;
 
 import android.content.Context;
+import android.media.AudioTrack;
 import android.os.Handler;
+import android.util.Log;
 
 import integritybytes.metronometest.MainActivity;
 
 
-public class Metronome {
+public class Metronome implements AudioTrack.OnPlaybackPositionUpdateListener {
+    private static final String TAG = "Metronome";
 
     private Object mLock = new Object();
     private double mBpm = 120;
@@ -41,6 +44,9 @@ public class Metronome {
 
         for (int i = 0; i < silence; i++)
             mTockSilenceSoundArray[i] = 0;
+
+        audioGenerator.getAudioTrack().setNotificationMarkerPosition(mTock.getSampleCount() / 8);
+        audioGenerator.getAudioTrack().setPlaybackPositionUpdateListener(this);
     }
 
     private void isInitialized() {
@@ -51,7 +57,7 @@ public class Metronome {
 
     public void play() {
         isInitialized();
-
+        mLastPlaybackPosition = 0;
         play = true;
         audioGenerator.createPlayer();
         calcSilence();
@@ -62,7 +68,7 @@ public class Metronome {
 
                     short[] sample = (short[]) mTock.getSample();
                     audioGenerator.writeSound(sample, sample.length > mBeatDivisionSampleCount ? mBeatDivisionSampleCount : sample.length);
-                    mHandler.sendEmptyMessage(MainActivity.Messages.METRONOME_CLICK);
+                    //mHandler.sendEmptyMessage(MainActivity.Messages.METRONOME_CLICK);
                     audioGenerator.writeSound(mTockSilenceSoundArray);
 
                     synchronized (mLock) {
@@ -94,6 +100,24 @@ public class Metronome {
 
     public void setBpm(int bpm) {
         mBpm = bpm;
-        calcSilence();
+    }
+
+    private int mLastPlaybackPosition = 0;
+    @Override
+    public void onMarkerReached(AudioTrack track) {
+        final int headPosition = track.getPlaybackHeadPosition();
+        final int lastPlaybackDelta = headPosition - mLastPlaybackPosition;
+        final int variance = mBeatDivisionSampleCount - lastPlaybackDelta;
+        final int nextPosition = mLastPlaybackPosition == 0 ? mBeatDivisionSampleCount : mBeatDivisionSampleCount + variance;
+        Log.d(TAG, "onMarkerReached: " + headPosition + ", delta = " + lastPlaybackDelta + ", variance = " + variance + ", np = " + nextPosition);
+        track.setNotificationMarkerPosition(headPosition + nextPosition);
+
+        mLastPlaybackPosition = headPosition;
+        mHandler.sendEmptyMessage(MainActivity.Messages.METRONOME_CLICK);
+    }
+
+    @Override
+    public void onPeriodicNotification(AudioTrack track) {
+
     }
 }

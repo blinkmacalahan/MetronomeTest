@@ -53,32 +53,9 @@ public class AudioGenerator {
     	audioTrack.release();
     }
 
-//    public static void load(Context context, final String filename) {
-//        BufferedReader reader = null;
-//        try {
-//            context.getAssets().openFd(filename).
-//            InputStreamReader st = new InputStreamReader(context.getAssets().open(filename));
-//            reader = new BufferedReader(
-//                    new InputStreamReader(context.getAssets().open("filename.txt"), "UTF-8"));
-//
-//            // do reading, usually loop until end of file reading
-//            String mLine;
-//            while ((mLine = reader.readLine()) != null) {
-//                //process line
-//                ...
-//            }
-//        } catch (IOException e) {
-//            //log the exception
-//        } finally {
-//            if (reader != null) {
-//                try {
-//                    reader.close();
-//                } catch (IOException e) {
-//                    //log the exception
-//                }
-//            }
-//        }
-//    }
+    public AudioTrack getAudioTrack() {
+        return audioTrack;
+    }
     /**
      * This makes the assumption that the wav file IS MONO and a .wav's header info is 44 bytes (which isn't 100% true), might need
      * to add logic to search for Subchunk2ID (0x64617461 big-endian form) plus 4 bytes to reach beginning

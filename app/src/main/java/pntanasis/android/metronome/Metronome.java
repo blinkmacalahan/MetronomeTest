@@ -26,6 +26,9 @@ public class Metronome implements AudioTrack.OnPlaybackPositionUpdateListener {
 
     private int mBeatDivisionSampleCount;
 
+    private int mMarkerReachedCount;
+    private int mInitialMarkerPosition;
+
     public Metronome(Handler handler) {
         mHandler = handler;
     }
@@ -45,7 +48,8 @@ public class Metronome implements AudioTrack.OnPlaybackPositionUpdateListener {
         for (int i = 0; i < silence; i++)
             mTockSilenceSoundArray[i] = 0;
 
-        audioGenerator.getAudioTrack().setNotificationMarkerPosition(mTock.getSampleCount() / 8);
+        mInitialMarkerPosition = mTock.getSampleCount() / 8;
+        audioGenerator.getAudioTrack().setNotificationMarkerPosition(mInitialMarkerPosition);
         audioGenerator.getAudioTrack().setPlaybackPositionUpdateListener(this);
     }
 
@@ -57,7 +61,7 @@ public class Metronome implements AudioTrack.OnPlaybackPositionUpdateListener {
 
     public void play() {
         isInitialized();
-        mLastPlaybackPosition = 0;
+        mMarkerReachedCount = 0;
         play = true;
         audioGenerator.createPlayer();
         calcSilence();
@@ -67,6 +71,7 @@ public class Metronome implements AudioTrack.OnPlaybackPositionUpdateListener {
                 do {
 
                     short[] sample = (short[]) mTock.getSample();
+                    Log.d(TAG, "run: hp = " + audioGenerator.getAudioTrack().getPlaybackHeadPosition());
                     audioGenerator.writeSound(sample, sample.length > mBeatDivisionSampleCount ? mBeatDivisionSampleCount : sample.length);
                     //mHandler.sendEmptyMessage(MainActivity.Messages.METRONOME_CLICK);
                     audioGenerator.writeSound(mTockSilenceSoundArray);
@@ -102,18 +107,17 @@ public class Metronome implements AudioTrack.OnPlaybackPositionUpdateListener {
         mBpm = bpm;
     }
 
-    private int mLastPlaybackPosition = 0;
     @Override
     public void onMarkerReached(AudioTrack track) {
         final int headPosition = track.getPlaybackHeadPosition();
-        final int lastPlaybackDelta = headPosition - mLastPlaybackPosition;
-        final int variance = mBeatDivisionSampleCount - lastPlaybackDelta;
-        final int nextMarkerPosition = mLastPlaybackPosition == 0 ? mBeatDivisionSampleCount : mBeatDivisionSampleCount + variance;
-        Log.d(TAG, "onMarkerReached | headPosition = " + headPosition + ", lastPlaybackDelta = " + lastPlaybackDelta + ", variance = " + variance + ", nextMarkerPosition = " + nextMarkerPosition);
+//        //This calculates the header position we want/ed to be at
+        final int plannedHeadPosition = mInitialMarkerPosition + (mMarkerReachedCount * mBeatDivisionSampleCount);
+        int nextMarkerPosition = (plannedHeadPosition + mBeatDivisionSampleCount) - headPosition;
+        Log.d(TAG, "onMarkerReached: planned = " + plannedHeadPosition + ", hp = " + headPosition + ", next = " + nextMarkerPosition);
         track.setNotificationMarkerPosition(headPosition + nextMarkerPosition);
 
-        mLastPlaybackPosition = headPosition;
         mHandler.sendEmptyMessage(MainActivity.Messages.METRONOME_CLICK);
+        mMarkerReachedCount++;
     }
 
     @Override
